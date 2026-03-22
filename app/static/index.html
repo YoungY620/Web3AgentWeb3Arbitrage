@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hyperliquid 交易看板</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg-primary:   #0a0e17;
+    --bg-card:      #111827;
+    --bg-card-alt:  #1a2235;
+    --border:       #1f2937;
+    --text-primary: #e5e7eb;
+    --text-secondary:#9ca3af;
+    --text-muted:   #6b7280;
+    --accent:       #3b82f6;
+    --accent-glow:  rgba(59,130,246,0.15);
+    --green:        #10b981;
+    --green-bg:     rgba(16,185,129,0.12);
+    --red:          #ef4444;
+    --red-bg:       rgba(239,68,68,0.12);
+    --yellow:       #f59e0b;
+    --radius:       10px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    min-height: 100vh;
+  }
+
+  /* ── Header ── */
+  .header {
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    backdrop-filter: blur(12px);
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(10,14,23,0.85);
+  }
+  .header h1 {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+  .header h1 span { color: var(--accent); }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    display: inline-block; margin-right: 8px;
+    animation: pulse 2s infinite;
+  }
+  .status-dot.on  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-dot.off { background: var(--red); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+  .header-right { display:flex; align-items:center; gap:16px; font-size:13px; color:var(--text-secondary); }
+
+  /* ── Layout ── */
+  .container { max-width:1400px; margin:0 auto; padding:24px 32px; }
+  .grid { display:grid; gap:20px; }
+  .grid-4 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  @media(max-width:900px) { .grid-2,.grid-3 { grid-template-columns:1fr; } }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    transition: border-color 0.2s;
+  }
+  .card:hover { border-color: #374151; }
+  .card-title {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+  }
+  .card-value {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -1px;
+    font-variant-numeric: tabular-nums;
+  }
+  .card-sub {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+  }
+
+  /* ── Market Cards ── */
+  .market-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .market-name {
+    font-weight: 700;
+    font-size: 16px;
+  }
+  .market-price {
+    font-size: 20px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .market-leverage {
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--bg-card-alt);
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-top: 4px;
+    display: inline-block;
+  }
+
+  /* ── Section ── */
+  .section { margin-top: 28px; }
+  .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  .section-title {
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  /* ── Controls ── */
+  .controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  select, input[type="number"] {
+    background: var(--bg-card-alt);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 7px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    outline: none;
+  }
+  select:focus, input:focus { border-color: var(--accent); }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 8px 18px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  button:hover { opacity: 0.85; }
+  .btn-outline {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+  }
+  .btn-outline.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-glow);
+  }
+
+  /* ── Table ── */
+  .table-wrap {
+    overflow-x: auto;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  thead { background: var(--bg-card-alt); }
+  th {
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  td {
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  .side-B { color: var(--green); }
+  .side-A { color: var(--red); }
+
+  /* ── Chart ── */
+  .chart-container {
+    position: relative;
+    height: 320px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+
+  /* ── Loader ── */
+  .loader {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-muted);
+  }
+  .spinner {
+    width: 24px; height: 24px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 12px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Tabs ── */
+  .tabs { display:flex; gap:4px; margin-bottom:16px; }
+  .tab {
+    padding: 6px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px solid transparent;
+    transition: all 0.2s;
+  }
+  .tab:hover { color: var(--text-primary); }
+  .tab.active {
+    background: var(--accent-glow);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <h1><span>HL</span> Trade Dashboard</h1>
+  <div class="header-right">
+    <span><span class="status-dot" id="statusDot"></span><span id="statusText">连接中...</span></span>
+    <span id="tradeCount">-</span>
+    <span id="dbCount">-</span>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- Market Overview -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">市场总览</div>
+      <button onclick="loadMarketOverview()" class="btn-outline" style="font-size:12px">刷新</button>
+    </div>
+    <div class="grid grid-4" id="marketGrid">
+      <div class="loader"><div class="spinner"></div>加载中...</div>
+    </div>
+  </div>
+
+  <!-- Collector Stats -->
+  <div class="section">
+    <div class="grid grid-4" id="statsCards">
+      <div class="card"><div class="card-title">采集总量</div><div class="card-value" id="statReceived">-</div><div class="card-sub">实时采集交易笔数</div></div>
+      <div class="card"><div class="card-title">入库总量</div><div class="card-value" id="statInserted">-</div><div class="card-sub">写入数据库笔数</div></div>
+      <div class="card"><div class="card-title">重连次数</div><div class="card-value" id="statReconnect">0</div><div class="card-sub">WebSocket 断线重连</div></div>
+      <div class="card"><div class="card-title">运行时长</div><div class="card-value" id="statUptime">-</div><div class="card-sub">采集器运行时间</div></div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">价格走势</div>
+      <div class="controls">
+        <select id="chartCoin" onchange="loadChart()">
+          <option value="BTC">BTC</option>
+          <option value="ETH">ETH</option>
+          <option value="SOL">SOL</option>
+        </select>
+        <div class="tabs">
+          <div class="tab active" onclick="setChartRange(10, this)">10m</div>
+          <div class="tab" onclick="setChartRange(30, this)">30m</div>
+          <div class="tab" onclick="setChartRange(60, this)">1h</div>
+        </div>
+      </div>
+    </div>
+    <div class="grid grid-2">
+      <div class="chart-container"><canvas id="priceChart"></canvas></div>
+      <div class="chart-container"><canvas id="volumeChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Trade Stats per Coin -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">交易统计</div>
+      <div class="controls">
+        <select id="statsHours" onchange="loadTradeStats()">
+          <option value="1">过去 1 小时</option>
+          <option value="4">过去 4 小时</option>
+          <option value="24" selected>过去 24 小时</option>
+        </select>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>交易对</th>
+            <th>交易笔数</th>
+            <th>总成交额</th>
+            <th>均价</th>
+            <th>最低价</th>
+            <th>最高价</th>
+            <th>首笔时间</th>
+          </tr>
+        </thead>
+        <tbody id="statsTable"><tr><td colspan="7" class="loader">加载中...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Query Section -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">交易查询</div>
+      <div class="controls">
+        <select id="queryCoin">
+          <option value="">全部交易对</option>
+          <option value="BTC">BTC</option>
+          <option value="ETH">ETH</option>
+          <option value="SOL">SOL</option>
+        </select>
+        <input type="number" id="queryLimit" value="50" min="1" max="500" style="width:80px" placeholder="条数">
+        <button onclick="loadTrades()">查询</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>时间</th>
+            <th>交易对</th>
+            <th>方向</th>
+            <th>价格</th>
+            <th>数量</th>
+            <th>名义金额</th>
+            <th>TxHash</th>
+          </tr>
+        </thead>
+        <tbody id="tradesTable"><tr><td colspan="7" class="loader">加载中...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Large Trades -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">大额交易监控</div>
+      <div class="controls">
+        <select id="largeCoin">
+          <option value="">全部</option>
+          <option value="BTC">BTC</option>
+          <option value="ETH">ETH</option>
+        </select>
+        <label style="font-size:13px;color:var(--text-secondary)">最小金额 $</label>
+        <input type="number" id="largeMin" value="5000" min="100" style="width:100px">
+        <button onclick="loadLargeTrades()">筛选</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>时间</th>
+            <th>交易对</th>
+            <th>方向</th>
+            <th>价格</th>
+            <th>数量</th>
+            <th>名义金额</th>
+          </tr>
+        </thead>
+        <tbody id="largeTable"><tr><td colspan="6" class="loader">等待数据...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = '';
+let priceChart = null;
+let volumeChart = null;
+let chartMinutes = 10;
+
+function fmt(n, d=2) {
+  if (n == null) return '-';
+  return Number(n).toLocaleString('en-US', {minimumFractionDigits:d, maximumFractionDigits:d});
+}
+function fmtK(n) {
+  if (n == null) return '-';
+  if (n >= 1e6) return (n/1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
+  return fmt(n);
+}
+function fmtTime(ms) {
+  if (!ms) return '-';
+  const d = new Date(ms);
+  return d.toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+}
+function fmtDuration(sec) {
+  if (!sec) return '-';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+function shortHash(h) {
+  if (!h) return '-';
+  return h.slice(0, 8) + '…' + h.slice(-6);
+}
+
+async function loadMarketOverview() {
+  try {
+    const r = await fetch(API + '/api/market_overview');
+    const data = await r.json();
+    const grid = document.getElementById('marketGrid');
+    if (!data.markets || data.markets.length === 0) {
+      grid.innerHTML = '<div class="loader">暂无市场数据</div>';
+      return;
+    }
+    grid.innerHTML = data.markets.map(m => `
+      <div class="market-card">
+        <div>
+          <div class="market-name">${m.coin}</div>
+          ${m.max_leverage ? `<div class="market-leverage">${m.max_leverage}x</div>` : ''}
+        </div>
+        <div style="text-align:right">
+          <div class="market-price">$${fmt(m.mid_price)}</div>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {
+    document.getElementById('marketGrid').innerHTML = '<div class="loader">加载失败</div>';
+  }
+}
+
+async function loadStatus() {
+  try {
+    const r = await fetch(API + '/api/status');
+    const data = await r.json();
+    const c = data.collector;
+    const dot = document.getElementById('statusDot');
+    const txt = document.getElementById('statusText');
+
+    if (c.connected) {
+      dot.className = 'status-dot on';
+      txt.textContent = '采集中';
+    } else {
+      dot.className = 'status-dot off';
+      txt.textContent = '未连接';
+    }
+
+    document.getElementById('statReceived').textContent = fmtK(c.total_received);
+    document.getElementById('statInserted').textContent = fmtK(c.total_inserted);
+    document.getElementById('statReconnect').textContent = c.reconnect_count;
+
+    if (c.start_time) {
+      const up = data.server_time / 1000 - c.start_time;
+      document.getElementById('statUptime').textContent = fmtDuration(up);
+    }
+
+    document.getElementById('tradeCount').textContent = `收到 ${fmtK(c.total_received)}`;
+    document.getElementById('dbCount').textContent = `入库 ${(data.database?.total_trades ?? 0).toLocaleString()}`;
+  } catch(e) {}
+}
+
+async function loadTrades() {
+  const coin = document.getElementById('queryCoin').value;
+  const limit = document.getElementById('queryLimit').value;
+  try {
+    let url = API + `/api/trades?limit=${limit}`;
+    if (coin) url += `&coin=${coin}`;
+    const r = await fetch(url);
+    const trades = await r.json();
+    const tb = document.getElementById('tradesTable');
+    if (!trades.length) { tb.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px">暂无数据，等待采集中...</td></tr>'; return; }
+    tb.innerHTML = trades.map(t => `
+      <tr>
+        <td>${fmtTime(t.time_ms)}</td>
+        <td><strong>${t.coin}</strong></td>
+        <td class="side-${t.side}">${t.side === 'B' ? '买入' : '卖出'}</td>
+        <td>$${fmt(t.px)}</td>
+        <td>${fmt(t.sz, 4)}</td>
+        <td>$${fmt(t.notional)}</td>
+        <td style="color:var(--text-muted);font-size:12px">${shortHash(t.hash)}</td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    document.getElementById('tradesTable').innerHTML = '<tr><td colspan="7" class="loader">加载失败</td></tr>';
+  }
+}
+
+async function loadTradeStats() {
+  const hours = document.getElementById('statsHours').value;
+  try {
+    const r = await fetch(API + `/api/stats?hours=${hours}`);
+    const stats = await r.json();
+    const tb = document.getElementById('statsTable');
+    if (!stats.length) { tb.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px">该时段暂无数据</td></tr>'; return; }
+    tb.innerHTML = stats.map(s => `
+      <tr>
+        <td><strong>${s.coin}</strong></td>
+        <td>${s.trade_count.toLocaleString()}</td>
+        <td>$${fmtK(s.total_volume)}</td>
+        <td>$${fmt(s.avg_price)}</td>
+        <td>$${fmt(s.min_price)}</td>
+        <td>$${fmt(s.max_price)}</td>
+        <td>${fmtTime(s.first_trade)}</td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    document.getElementById('statsTable').innerHTML = '<tr><td colspan="7" class="loader">加载失败</td></tr>';
+  }
+}
+
+async function loadLargeTrades() {
+  const coin = document.getElementById('largeCoin').value;
+  const min = document.getElementById('largeMin').value;
+  try {
+    let url = API + `/api/large_trades?min_notional=${min}`;
+    if (coin) url += `&coin=${coin}`;
+    const r = await fetch(url);
+    const trades = await r.json();
+    const tb = document.getElementById('largeTable');
+    if (!trades.length) { tb.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:24px">未发现大额交易</td></tr>'; return; }
+    tb.innerHTML = trades.map(t => `
+      <tr>
+        <td>${fmtTime(t.time_ms)}</td>
+        <td><strong>${t.coin}</strong></td>
+        <td class="side-${t.side}">${t.side === 'B' ? '买入' : '卖出'}</td>
+        <td>$${fmt(t.px)}</td>
+        <td>${fmt(t.sz, 4)}</td>
+        <td style="font-weight:700;color:var(--yellow)">$${fmt(t.notional)}</td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    document.getElementById('largeTable').innerHTML = '<tr><td colspan="6" class="loader">加载失败</td></tr>';
+  }
+}
+
+function setChartRange(min, el) {
+  chartMinutes = min;
+  document.querySelectorAll('.tabs .tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  loadChart();
+}
+
+async function loadChart() {
+  const coin = document.getElementById('chartCoin').value;
+  try {
+    const r = await fetch(API + `/api/price_series?coin=${coin}&minutes=${chartMinutes}&interval=10`);
+    const data = await r.json();
+
+    if (!data.length) return;
+
+    const labels = data.map(d => fmtTime(d.bucket));
+    const prices = data.map(d => d.avg_px);
+    const volumes = data.map(d => d.total_notional);
+
+    if (priceChart) priceChart.destroy();
+    priceChart = new Chart(document.getElementById('priceChart'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: `${coin} 均价`,
+          data: prices,
+          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(59,130,246,0.08)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 0,
+          borderWidth: 2,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => `$${fmt(ctx.parsed.y)}`
+            }
+          }
+        },
+        scales: {
+          x: { ticks: { color: '#6b7280', maxTicksLimit: 8, font:{size:11} }, grid: { color: 'rgba(255,255,255,0.04)' } },
+          y: { ticks: { color: '#6b7280', callback: v => '$'+fmtK(v), font:{size:11} }, grid: { color: 'rgba(255,255,255,0.04)' } }
+        }
+      }
+    });
+
+    if (volumeChart) volumeChart.destroy();
+    volumeChart = new Chart(document.getElementById('volumeChart'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: '成交额',
+          data: volumes,
+          backgroundColor: volumes.map((v, i) => {
+            const prev = i > 0 ? prices[i-1] : prices[i];
+            return prices[i] >= prev ? 'rgba(16,185,129,0.5)' : 'rgba(239,68,68,0.5)';
+          }),
+          borderRadius: 2,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => `$${fmt(ctx.parsed.y)}`
+            }
+          }
+        },
+        scales: {
+          x: { ticks: { color: '#6b7280', maxTicksLimit: 8, font:{size:11} }, grid: { color: 'rgba(255,255,255,0.04)' } },
+          y: { ticks: { color: '#6b7280', callback: v => '$'+fmtK(v), font:{size:11} }, grid: { color: 'rgba(255,255,255,0.04)' } }
+        }
+      }
+    });
+  } catch(e) {}
+}
+
+async function updateCoinSelect() {
+  try {
+    const r = await fetch(API + '/api/coins');
+    const coins = await r.json();
+    if (!coins.length) return;
+
+    const selects = ['queryCoin', 'largeCoin', 'chartCoin'];
+    for (const id of selects) {
+      const sel = document.getElementById(id);
+      const current = sel.value;
+      const hasAll = sel.options[0]?.value === '';
+
+      const opts = hasAll ? '<option value="">全部</option>' : '';
+      sel.innerHTML = opts + coins.map(c =>
+        `<option value="${c.coin}" ${c.coin === current ? 'selected' : ''}>${c.coin} (${c.count})</option>`
+      ).join('');
+    }
+  } catch(e) {}
+}
+
+async function refreshAll() {
+  await Promise.all([
+    loadStatus(),
+    loadTrades(),
+    loadTradeStats(),
+    loadChart(),
+    loadLargeTrades(),
+    updateCoinSelect(),
+  ]);
+}
+
+loadMarketOverview();
+refreshAll();
+
+setInterval(loadStatus, 3000);
+setInterval(() => { loadTrades(); loadChart(); }, 5000);
+setInterval(loadTradeStats, 15000);
+setInterval(loadLargeTrades, 10000);
+setInterval(loadMarketOverview, 60000);
+setInterval(updateCoinSelect, 30000);
+</script>
+</body>
+</html>
